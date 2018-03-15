@@ -106,7 +106,11 @@
   };
 
   // An internal function for creating assigner functions.
+  // 首先要看createAssigner的使用场景，
+  // _.extend = createAssigner(_.allKeys)
+  //  _.defaults = createAssigner(_.allKeys, true);
   var createAssigner = function(keysFunc, undefinedOnly) {
+    // 这里要把后面对象合并到第一个对象上（以第一个对象为目标）
     return function(obj) {
       var length = arguments.length;
       if (length < 2 || obj == null) return obj;
@@ -116,6 +120,8 @@
             l = keys.length;
         for (var i = 0; i < l; i++) {
           var key = keys[i];
+          // 如果是extend，那么不管obj[key]是不是undefined都要重新赋值（将后面对象的属性并到第一个对象上）
+          // 如果是defaults，则只对bj[key]为undefined的赋默认值（将后面对象的属性填充到第一个对象上）
           if (!undefinedOnly || obj[key] === void 0) obj[key] = source[key];
         }
       }
@@ -124,6 +130,7 @@
   };
 
   // An internal function for creating a new object that inherits from another.
+  // 如果存在Object.create方法，则直接调用，否则就模拟Object.create的创建
   var baseCreate = function(prototype) {
     if (!_.isObject(prototype)) return {};
     if (nativeCreate) return nativeCreate(prototype);
@@ -913,7 +920,10 @@
   // Object Functions
   // ----------------
 
-  // Keys in IE < 9 that won't be iterated by `for key in ...` and thus missed.
+  // 正常情况下，就是用for in和propertyIsEnumerable是无法查询出nonEnumerableProps里面的这几个字段的
+  // 但是这几个字段是可以手动修改的，修改后就可以for in查询到，但是在ie9以下是依旧无法看到的。
+  // 所以在这里对ie9以下的进行了单独的处理，通过判断重写后的toString方法来决定是否有这个bug
+  // warning：这几个方法是存在Object构造函数的原型上面的
   var hasEnumBug = !{toString: null}.propertyIsEnumerable('toString');
   var nonEnumerableProps = ['valueOf', 'isPrototypeOf', 'toString',
                       'propertyIsEnumerable', 'hasOwnProperty', 'toLocaleString'];
@@ -921,22 +931,30 @@
   function collectNonEnumProps(obj, keys) {
     var nonEnumIdx = nonEnumerableProps.length;
     var constructor = obj.constructor;
+    // 判断是否重写了constructor，如果未重写，就直接返回constructor.prototype，否则就用Object.prototype代替
     var proto = (_.isFunction(constructor) && constructor.prototype) || ObjProto;
 
     // Constructor is a special case.
     var prop = 'constructor';
+    // _.has等于hasOwnProperty，只对对象自身有的属性（原型上的不算）返回true
+    // 这里其实是判断了一下是否重写了constructor，如果是，则直接push，如果没有，则不操作
+    // 为什么constructor会单独拎出来呢？我觉得放到下面也是一样，后来我想到一种特殊情况，如果我这样重写了constructor
+    // var a = {constructor: Object}，这种情况算不算重写了呢？当然算。但是如果按照下面方法判断，肯定false，因为a.constructor和a.__proto__.constructor是相等的，都是指向Object这个构造函数
+    // todo: 不理解为什么下面的不全部用hasOwnProperty来判断，反而用in来搞
     if (_.has(obj, prop) && !_.contains(keys, prop)) keys.push(prop);
 
     while (nonEnumIdx--) {
       prop = nonEnumerableProps[nonEnumIdx];
+      // 这里重点是判断obj和proto的[prop]是否一样，这个是为了判断是否重写了这几个属性
+      // 如果没有重写，那么就是来自原型的属性
+      // 这里之所以会用in来判断？原本我想的是不管怎样，肯定会返回true的吧？除非原型链上不存在这几个属性，我试了试把原型设为{}，发现不行，主要是因为空对象原型上面依然存在这些，后来想到如果把原型设为null就会出现问题
       if (prop in obj && obj[prop] !== proto[prop] && !_.contains(keys, prop)) {
         keys.push(prop);
       }
     }
   }
 
-  // Retrieve the names of an object's own properties.
-  // Delegates to **ECMAScript 5**'s native `Object.keys`
+  // 获取对象的所有key
   _.keys = function(obj) {
     if (!_.isObject(obj)) return [];
     if (nativeKeys) return nativeKeys(obj);
@@ -951,6 +969,7 @@
   _.allKeys = function(obj) {
     if (!_.isObject(obj)) return [];
     var keys = [];
+    // for in会遍历原型链上的属性
     for (var key in obj) keys.push(key);
     // Ahem, IE < 9.
     if (hasEnumBug) collectNonEnumProps(obj, keys);
