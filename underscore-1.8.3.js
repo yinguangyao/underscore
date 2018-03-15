@@ -43,10 +43,17 @@
     * 这里_是一个构造函数，首先判断obj是不是_的实例，如果是的，那就直接返回obj
     * 再判断_是不是直接调用的（对应_([1,2,3]).last这种情况），如果是的，那就创建一个新的实例
     * 如果两者都不是（对应_.last([1,2,3])这种情况），那就把obj赋值给this._wrapped
+    * 我们平时写的_.each、_.map等方法都是挂载在_构造函数上面的，可以直接用_来访问
+    * 如果我们用_()的形式，则是访问_原型的方式，_()一定会返回一个新实例
+    * chain链式调用则是返回了一个_(obj)
+    * https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Operators/new
   */
   var _ = function(obj) {
+    // 如果obj是_的实例，直接返回obj
     if (obj instanceof _) return obj;
+    // 如果this不是_构造函数的实例，那就根据obj new一个实例（相等于修改了_函数）
     if (!(this instanceof _)) return new _(obj);
+    // 对应_([1,2,3])这种情况
     this._wrapped = obj;
   };
 
@@ -106,7 +113,7 @@
   };
 
   // An internal function for creating assigner functions.
-  // 首先要看createAssigner的使用场景，
+  // 首先要看createAssigner的使用场景，主要是用来处理对象合并
   // _.extend = createAssigner(_.allKeys)
   //  _.defaults = createAssigner(_.allKeys, true);
   var createAssigner = function(keysFunc, undefinedOnly) {
@@ -139,7 +146,7 @@
     Ctor.prototype = null;
     return result;
   };
-
+  // 一个高阶函数，返回对象上某个具体属性的值
   var property = function(key) {
     return function(obj) {
       return obj == null ? void 0 : obj[key];
@@ -150,6 +157,8 @@
   // should be iterated as an array or as an object
   // Related: http://people.mozilla.org/~jorendorff/es6-draft.html#sec-tolength
   // Avoids a very nasty iOS 8 JIT bug on ARM-64. #2094
+  // 这里有个ios8上面的bug，会导致类似var pbj = {1: "a", 2: "b", 3: "c"}这种对象的obj.length = 4;
+  // 据说用obj["length"]就可以解决？我没有ios8的环境，有兴趣的可以试试
   var MAX_ARRAY_INDEX = Math.pow(2, 53) - 1;
   var getLength = property('length');
   // 判断是否是类数组（主要是根据是否有length属性来判断的），这里限制了最大长度pow(2,53) - 1
@@ -157,20 +166,42 @@
     var length = getLength(collection);
     return typeof length == 'number' && length >= 0 && length <= MAX_ARRAY_INDEX;
   };
+// jquery版本的 https://github.com/jquery/jquery/issues/2145
+// underscore版本的 https://github.com/jashkenas/underscore/issues/2081
+  function isArrayLike( obj ) {
 
+    // Support: real iOS 8.2 only (not reproducible in simulator)
+    // `in` check used to prevent JIT error (gh-2145)
+    // hasOwn isn't used here due to false negatives
+    // regarding Nodelist length in IE
+    var length = !!obj && "length" in obj && obj.length,
+      type = toType( obj );
+    // 排除了obj为function和全局中有length变量的情况
+    if ( isFunction( obj ) || isWindow( obj ) ) {
+      return false;
+    }
+
+    return type === "array" || length === 0 ||
+    // 最后一句应该是针对稀疏数组，比如var a = new Array(3)，这时a不能用forEach遍历到
+      typeof length === "number" && length > 0 && ( length - 1 ) in obj;
+  }
   // Collection Functions
   // --------------------
 
   // The cornerstone, an `each` implementation, aka `forEach`.
   // Handles raw objects in addition to array-likes. Treats all
   // sparse array-likes as if they were dense.
+  // 如果是类数组，则会访问下标，如果是对象，则遍历键值对
   _.each = _.forEach = function(obj, iteratee, context) {
+    // optimizeCb里面对context进行了call，如果不传context，那么each方法里面的this就会指向window
     iteratee = optimizeCb(iteratee, context);
     var i, length;
+    // 如果是类数组，一般来说包括数组、arguments、DOM集合等等（甚至包括带length属性的对象）
     if (isArrayLike(obj)) {
       for (i = 0, length = obj.length; i < length; i++) {
         iteratee(obj[i], i, obj);
       }
+    // 一般是指对象
     } else {
       var keys = _.keys(obj);
       for (i = 0, length = keys.length; i < length; i++) {
@@ -182,6 +213,8 @@
 
   // Return the results of applying the iteratee to each element.
   _.map = _.collect = function(obj, iteratee, context) {
+    // 因为在map中，第二个参数可能不是函数，所以用cb，比如var result = _.map([1,2,3]);
+    // 和var result = _.map([{name:'Kevin'}, {name: 'Daisy', age: 18}], {name: 'Daisy'}); // [false, true]
     iteratee = cb(iteratee, context);
     var keys = !isArrayLike(obj) && _.keys(obj),
         length = (keys || obj).length,
@@ -1110,12 +1143,18 @@
   };
 
   // Returns whether an object has a given set of `key:value` pairs.
+  // 另一种实现：
+//   _.chain(attrs).keys().every(function(key) {
+    //  return _.has(object, key) && _.isEqual(attrs[key], object[key])
+//  }
+})
   _.isMatch = function(object, attrs) {
     var keys = _.keys(attrs), length = keys.length;
     if (object == null) return !length;
     var obj = Object(object);
     for (var i = 0; i < length; i++) {
       var key = keys[i];
+      // 之所以用key in obj来判断是因为attrs里面有传undefined的情况，如果那个属性又不在obj上，就会导致相等
       if (attrs[key] !== obj[key] || !(key in obj)) return false;
     }
     return true;
@@ -1518,6 +1557,7 @@
   };
 
   // Add your own custom functions to the Underscore object.
+  // 在mixin方法上把_构造函数的方法挂载到原型上
   _.mixin = function(obj) {
     _.each(_.functions(obj), function(name) {
       var func = _[name] = obj[name];
