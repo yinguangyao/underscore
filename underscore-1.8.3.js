@@ -159,6 +159,7 @@
   // Avoids a very nasty iOS 8 JIT bug on ARM-64. #2094
   // 这里有个ios8上面的bug，会导致类似var pbj = {1: "a", 2: "b", 3: "c"}这种对象的obj.length = 4;
   // 据说用obj["length"]就可以解决？我没有ios8的环境，有兴趣的可以试试
+  // 最大安全长度http://ecma-international.org/ecma-262/6.0/#sec-number.max_safe_integer
   var MAX_ARRAY_INDEX = Math.pow(2, 53) - 1;
   var getLength = property('length');
   // 判断是否是类数组（主要是根据是否有length属性来判断的），这里限制了最大长度pow(2,53) - 1
@@ -226,7 +227,8 @@
     return results;
   };
 
-  // Create a reducing function iterating left or right.
+  // Create a reducing function iterating left or right
+  // createReduce用在reduce和reduceRight里面
   function createReduce(dir) {
     // Optimized iterator function as using arguments.length
     // in the main function will deoptimize the, see #1991.
@@ -237,7 +239,7 @@
       }
       return memo;
     }
-
+    // _.reduce传参分别是对象/数组, 函数，初始值，上下文
     return function(obj, iteratee, memo, context) {
       iteratee = optimizeCb(iteratee, context, 4);
       var keys = !isArrayLike(obj) && _.keys(obj),
@@ -245,6 +247,7 @@
           index = dir > 0 ? 0 : length - 1;
       // Determine the initial value if none is provided.
       if (arguments.length < 3) {
+        // 如果这里没有传入第三个值
         memo = obj[keys ? keys[index] : index];
         index += dir;
       }
@@ -1539,6 +1542,7 @@
   };
 
   // Add a "chain" function. Start chaining a wrapped Underscore object.
+  // 创建了一个实例，并返回
   _.chain = function(obj) {
     var instance = _(obj);
     instance._chain = true;
@@ -1553,17 +1557,24 @@
 
   // Helper function to continue chaining intermediate results.
   var result = function(instance, obj) {
+    // 只有执行过chain的_chain才是true（返回_(obj).chain是为了链式调用）
+    // 这就意味着链式调用的时候访问的是原型上的方法，而不是_上的方法
     return instance._chain ? _(obj).chain() : obj;
   };
 
   // Add your own custom functions to the Underscore object.
   // 在mixin方法上把_构造函数的方法挂载到原型上
   _.mixin = function(obj) {
+    // 遍历_上面所有方法
     _.each(_.functions(obj), function(name) {
+      // 保存引用
       var func = _[name] = obj[name];
       _.prototype[name] = function() {
+        // 将一开始传的值放到数组中（针对_.chain(obj)和_(obj)两种情况）
         var args = [this._wrapped];
+        // 将传给方法的参数push到数组中
         push.apply(args, arguments);
+        // 首先把传入的参数在方法里面执行并返回，之所以要result这一步，是因为原型上的方法会处理链式调用的情况
         return result(this, func.apply(_, args));
       };
     });
@@ -1578,6 +1589,7 @@
     _.prototype[name] = function() {
       var obj = this._wrapped;
       method.apply(obj, arguments);
+      // 为了兼容ie的bug https://github.com/jashkenas/underscore/issues/397
       if ((name === 'shift' || name === 'splice') && obj.length === 0) delete obj[0];
       return result(this, obj);
     };
@@ -1617,3 +1629,35 @@
     });
   }
 }.call(this));
+
+
+var obj = {
+	name: "obj",
+	age: 40,
+	children: [{
+    0: "tom",
+    1: "tim"
+	}, {
+    0: "harry",
+		1: "jerry"
+	}]
+}
+function objToUrlStr(obj) {
+  var str = "";
+  var toString = Object.prototype.toString;
+  var nativeKeys = Object.keys;
+  if(nativeKeys(obj).length === 0) return str
+  for(var key in obj) {
+    if(toString.call(obj[key]) === "[object Array]") {
+      obj[key].forEach(function(itemObj) {
+        nativeKeys(itemObj).forEach(function(itemKey) {
+          str = str + "" + key + "=" + itemObj[itemKey] + "&"
+        })
+      })
+    } else {
+      str = str + "" + key + "=" + obj[key] + "&"
+    }
+  }
+  return str.slice(0, -1)
+}
+objToUrlStr(obj)
