@@ -233,6 +233,7 @@
     // Optimized iterator function as using arguments.length
     // in the main function will deoptimize the, see #1991.
     function iterator(obj, iteratee, memo, keys, index, length) {
+      // 其实这里是从obj里面第二个或者倒数第二个开始算的
       for (; index >= 0 && index < length; index += dir) {
         var currentKey = keys ? keys[index] : index;
         memo = iteratee(memo, obj[currentKey], currentKey, obj);
@@ -247,8 +248,9 @@
           index = dir > 0 ? 0 : length - 1;
       // Determine the initial value if none is provided.
       if (arguments.length < 3) {
-        // 如果这里没有传入第三个值
+        // 如果这里没有传入第三个初始值，那么会把obj里面第一个值赋过去
         memo = obj[keys ? keys[index] : index];
+        // index从1或者length-2开始
         index += dir;
       }
       return iterator(obj, iteratee, memo, keys, index, length);
@@ -275,6 +277,7 @@
 
   // Return all the elements that pass a truth test.
   // Aliased as `select`.
+  // filter函数，只会返回运行后为true的项的集合
   _.filter = _.select = function(obj, predicate, context) {
     var results = [];
     predicate = cb(predicate, context);
@@ -284,13 +287,14 @@
     return results;
   };
 
-  // Return all the elements for which a truth test fails.
+  // 返回不满足条件的值
   _.reject = function(obj, predicate, context) {
     return _.filter(obj, _.negate(cb(predicate)), context);
   };
 
   // Determine whether all of the elements match a truth test.
   // Aliased as `all`.
+  // 验证每一项
   _.every = _.all = function(obj, predicate, context) {
     predicate = cb(predicate, context);
     var keys = !isArrayLike(obj) && _.keys(obj),
@@ -304,6 +308,7 @@
 
   // Determine if at least one element in the object matches a truth test.
   // Aliased as `any`.
+  // 只要有一项是true，那就返回true
   _.some = _.any = function(obj, predicate, context) {
     predicate = cb(predicate, context);
     var keys = !isArrayLike(obj) && _.keys(obj),
@@ -909,6 +914,8 @@
   };
 
   // Returns a negated version of the passed-in predicate.
+
+  // 返回不满足predicate函数条件的值
   _.negate = function(predicate) {
     return function() {
       return !predicate.apply(this, arguments);
